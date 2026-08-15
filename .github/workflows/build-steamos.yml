@@ -422,33 +422,37 @@ jobs:
             path = Path("lib/gaming-packages.sh")
             text = path.read_text()
 
-            replacements = {
-                '''    if [ "$desktop" = "kde" ]; then
-        chroot "$rootdir" pacman -S --noconfirm --needed \\
-''': '''    if [ "$desktop" = "kde" ]; then
-        # pacman cannot answer the qt6-multimedia-backend provider prompt in CI.
-        chroot "$rootdir" pacman -S --noconfirm --needed qt6-multimedia-ffmpeg
-        chroot "$rootdir" pacman -S --noconfirm --needed \\
-''',
-                '''    # ---- Default: Game Mode ----
-    touch "$rootdir/var/lib/sheng-steamos/gamemode-active"
-
-    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"
-    ln -sf /etc/systemd/system/steam-gamemode.service \\
-        "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"
-''': '''    # ---- Default: honour the selected desktop ----
-    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"
-    if [ "$desktop" = "kde" ] || [ "$desktop" = "gnome" ]; then
-        touch "$rootdir/var/lib/sheng-steamos/desktop-active"
-        ln -sf /etc/systemd/system/desktop-mode.service \\
-            "$rootdir/etc/systemd/system/graphical.target.wants/desktop-mode.service"
-    else
-        touch "$rootdir/var/lib/sheng-steamos/gamemode-active"
-        ln -sf /etc/systemd/system/steam-gamemode.service \\
-            "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"
-    fi
-''',
-            }
+            old_kde = (
+                '    if [ "$desktop" = "kde" ]; then\n'
+                '        chroot "$rootdir" pacman -S --noconfirm --needed \\\n'
+            )
+            new_kde = (
+                '    if [ "$desktop" = "kde" ]; then\n'
+                '        # CI has no stdin for pacman provider prompts.\n'
+                '        chroot "$rootdir" pacman -S --noconfirm --needed qt6-multimedia-ffmpeg\n'
+                '        chroot "$rootdir" pacman -S --noconfirm --needed \\\n'
+            )
+            old_default = (
+                '    # ---- Default: Game Mode ----\n'
+                '    touch "$rootdir/var/lib/sheng-steamos/gamemode-active"\n\n'
+                '    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"\n'
+                '    ln -sf /etc/systemd/system/steam-gamemode.service \\\n'
+                '        "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"\n'
+            )
+            new_default = (
+                '    # ---- Default: honour the selected desktop ----\n'
+                '    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"\n'
+                '    if [ "$desktop" = "kde" ] || [ "$desktop" = "gnome" ]; then\n'
+                '        touch "$rootdir/var/lib/sheng-steamos/desktop-active"\n'
+                '        ln -sf /etc/systemd/system/desktop-mode.service \\\n'
+                '            "$rootdir/etc/systemd/system/graphical.target.wants/desktop-mode.service"\n'
+                '    else\n'
+                '        touch "$rootdir/var/lib/sheng-steamos/gamemode-active"\n'
+                '        ln -sf /etc/systemd/system/steam-gamemode.service \\\n'
+                '            "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"\n'
+                '    fi\n'
+            )
+            replacements = {old_kde: new_kde, old_default: new_default}
 
             for old, new in replacements.items():
                 if old not in text:
