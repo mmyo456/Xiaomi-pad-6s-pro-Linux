@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # Build SteamOS (Arch Linux ARM + parallel component builds)
 # =============================================================================
 
@@ -407,6 +407,56 @@ jobs:
           path: ArchLinuxARM-aarch64-latest.tar.gz
           key: archlinuxarm-rootfs-${{ hashFiles('sheng-steamos_build.sh') }}
           restore-keys: archlinuxarm-rootfs-
+
+      # The upstream helper currently leaves qt6-multimedia-backend to
+      # pacman's provider prompt, which has no stdin in CI.  It also creates
+      # desktop-mode.service without enabling it, then always selects the
+      # Game Mode marker.  Apply a small, asserted patch before building so
+      # the KDE choice produces a bootable Plasma session.
+      - name: "Fix non-interactive KDE image build"
+        if: ${{ inputs.desktop == 'kde' }}
+        run: |
+            python3 - <<'PY'
+            from pathlib import Path
+
+            path = Path("lib/gaming-packages.sh")
+            text = path.read_text()
+
+            replacements = {
+                '''    if [ "$desktop" = "kde" ]; then
+        chroot "$rootdir" pacman -S --noconfirm --needed \\
+''': '''    if [ "$desktop" = "kde" ]; then
+        # pacman cannot answer the qt6-multimedia-backend provider prompt in CI.
+        chroot "$rootdir" pacman -S --noconfirm --needed qt6-multimedia-ffmpeg
+        chroot "$rootdir" pacman -S --noconfirm --needed \\
+''',
+                '''    # ---- Default: Game Mode ----
+    touch "$rootdir/var/lib/sheng-steamos/gamemode-active"
+
+    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"
+    ln -sf /etc/systemd/system/steam-gamemode.service \\
+        "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"
+''': '''    # ---- Default: honour the selected desktop ----
+    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"
+    if [ "$desktop" = "kde" ] || [ "$desktop" = "gnome" ]; then
+        touch "$rootdir/var/lib/sheng-steamos/desktop-active"
+        ln -sf /etc/systemd/system/desktop-mode.service \\
+            "$rootdir/etc/systemd/system/graphical.target.wants/desktop-mode.service"
+    else
+        touch "$rootdir/var/lib/sheng-steamos/gamemode-active"
+        ln -sf /etc/systemd/system/steam-gamemode.service \\
+            "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"
+    fi
+''',
+            }
+
+            for old, new in replacements.items():
+                if old not in text:
+                    raise SystemExit(f"Expected upstream block not found: {old[:60]!r}")
+                text = text.replace(old, new, 1)
+
+            path.write_text(text)
+            PY
 
       - name: "Build SteamOS Image"
         run: |
