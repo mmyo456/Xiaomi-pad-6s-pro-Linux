@@ -426,6 +426,8 @@ jobs:
 
             path = Path("lib/gaming-packages.sh")
             text = path.read_text()
+            build_path = Path("sheng-steamos_build.sh")
+            build_text = build_path.read_text()
 
             old_kde = (
                 '    if [ "$desktop" = "kde" ]; then\n'
@@ -450,6 +452,11 @@ jobs:
                 '    ln -sf /etc/systemd/system/steam-gamemode.service \\\n'
                 '        "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"\n'
             )
+            old_before_cleanup = (
+                'setup_gaming_session "$ROOTDIR" "$LAUNCHER" "$DESKTOP" "$USERNAME"\n\n'
+                '# ==========================================================================\n'
+                '# Step 9: Cleanup\n'
+            )
             new_default = (
                 '    # ---- KDE: start through the display manager ----\n'
                 '    mkdir -p "$rootdir/etc/systemd/system/graphical.target.wants"\n'
@@ -467,14 +474,56 @@ jobs:
                 '            "$rootdir/etc/systemd/system/graphical.target.wants/steam-gamemode.service"\n'
                 '    fi\n'
             )
-            replacements = {old_kde: new_kde, old_default: new_default}
+            new_before_cleanup = (
+                'setup_gaming_session "$ROOTDIR" "$LAUNCHER" "$DESKTOP" "$USERNAME"\n\n'
+                '# ---- Mandatory KDE completion gate ----\n'
+                '# Step 6 is intentionally best-effort upstream, so perform the\n'
+                '# desktop installation after it and outside that ignored subshell.\n'
+                'if [ "$DESKTOP" = "kde" ]; then\n'
+                '    echo "Verifying mandatory KDE desktop components..."\n'
+                '    chroot "$ROOTDIR" pacman -S --noconfirm --needed \\\n'
+                '        qt6-multimedia-ffmpeg sddm plasma-desktop plasma-workspace\n'
+                '    chroot "$ROOTDIR" pacman -Q sddm plasma-desktop plasma-workspace\n'
+                '    test -x "$ROOTDIR/usr/bin/sddm"\n'
+                '    test -x "$ROOTDIR/usr/bin/startplasma-wayland"\n'
+                '    test -f "$ROOTDIR/usr/lib/systemd/system/sddm.service"\n'
+                '    test -f "$ROOTDIR/usr/share/wayland-sessions/plasma.desktop"\n'
+                '    mkdir -p "$ROOTDIR/etc/sddm.conf.d" \\\n'
+                '        "$ROOTDIR/etc/systemd/system/graphical.target.wants"\n'
+                '    cat > "$ROOTDIR/etc/sddm.conf.d/autologin.conf" <<EOF\n'
+                '[General]\n'
+                'DisplayServer=wayland\n\n'
+                '[Autologin]\n'
+                'User=${USERNAME}\n'
+                'Session=plasma.desktop\n'
+                'EOF\n'
+                '    rm -f "$ROOTDIR/etc/systemd/system/graphical.target.wants/desktop-mode.service"\n'
+                '    rm -f "$ROOTDIR/etc/systemd/system/graphical.target.wants/steam-gamemode.service"\n'
+                '    rm -f "$ROOTDIR/var/lib/sheng-steamos/gamemode-active"\n'
+                '    ln -sf /usr/lib/systemd/system/sddm.service \\\n'
+                '        "$ROOTDIR/etc/systemd/system/display-manager.service"\n'
+                '    ln -sf /usr/lib/systemd/system/sddm.service \\\n'
+                '        "$ROOTDIR/etc/systemd/system/graphical.target.wants/sddm.service"\n'
+                'fi\n\n'
+                '# ==========================================================================\n'
+                '# Step 9: Cleanup\n'
+            )
+            replacements = {
+                old_kde: new_kde,
+                old_default: new_default,
+            }
 
             for old, new in replacements.items():
                 if old not in text:
                     raise SystemExit(f"Expected upstream block not found: {old[:60]!r}")
                 text = text.replace(old, new, 1)
 
+            if old_before_cleanup not in build_text:
+                raise SystemExit("Expected Step 8/9 boundary not found in build script")
+            build_text = build_text.replace(old_before_cleanup, new_before_cleanup, 1)
+
             path.write_text(text)
+            build_path.write_text(build_text)
             PY
 
       - name: "Build SteamOS Image"
