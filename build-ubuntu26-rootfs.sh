@@ -56,10 +56,21 @@ echo "=========================================="
 preflight_checks 10240 debootstrap
 
 create_image "$IMAGE_SIZE" "$ROOTFS_IMG" "$UUID"
-setup_chroot_mounts "$ROOTDIR"
 trap_teardown "$ROOTDIR"
 
 debootstrap --arch=arm64 "$UBUNTU_SUITE" "$ROOTDIR" "$UBUNTU_MIRROR"
+
+# debootstrap manages and unmounts its own pseudo-filesystems. Mount ours only
+# after it has finished, otherwise /proc and /sys disappear before apt runs.
+setup_chroot_mounts "$ROOTDIR"
+touch "$ROOTDIR/etc/machine-id"
+
+# Package post-install scripts must not attempt to start services in the chroot.
+cat > "$ROOTDIR/usr/sbin/policy-rc.d" <<'EOF'
+#!/bin/sh
+exit 101
+EOF
+chmod +x "$ROOTDIR/usr/sbin/policy-rc.d"
 
 cat > "$ROOTDIR/etc/apt/sources.list" <<EOF
 deb $UBUNTU_MIRROR $UBUNTU_SUITE main restricted universe multiverse
