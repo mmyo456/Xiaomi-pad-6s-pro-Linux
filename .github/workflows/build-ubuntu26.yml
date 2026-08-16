@@ -1,4 +1,4 @@
-name: Build Ubuntu 26.04 Desktop
+name: Build Ubuntu 26.04 KDE Desktop
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       kernel_version:
         description: '内核版本'
         required: true
-        default: '7.0'
+        default: '7.1'
       kernel_channel:
         description: '内核通道'
         required: true
@@ -17,21 +17,21 @@ on:
         description: '桌面环境'
         required: true
         type: choice
-        options: [all, gnome, kde, xfce]
-        default: 'all'
+        options: [kde, gnome, xfce]
+        default: 'kde'
       boot_mode:
         description: '启动模式'
         required: true
         type: choice
-        options: [all, dual, single]
-        default: 'all'
+        options: [dual, single]
+        default: 'dual'
       skip_release:
-        description: '跳过创建GitHub Release'
+        description: '跳过创建 GitHub Release'
         type: boolean
         default: false
 
   push:
-    branches: [sheng, main, master]
+    branches: [sheng]
     paths:
       - 'build-ubuntu26-rootfs.sh'
       - 'lib/rootfs-common.sh'
@@ -51,15 +51,15 @@ jobs:
     with:
       distro: ubuntu
       script: build-ubuntu26-rootfs.sh
-      kernel_version_default: ${{ inputs.kernel_version || '7.0' }}
+      kernel_version_default: ${{ inputs.kernel_version || '7.1' }}
       kernel_channel_default: 'mainline'
       kernel_channel: ${{ inputs.kernel_channel || 'mainline' }}
       kernel_bundle_repo: 'code002-2/Xiaomi-pad-6s-pro-Linux'
-      desktop_env: ${{ inputs.desktop_env || 'all' }}
-      boot_mode: ${{ inputs.boot_mode || 'all' }}
-      desktop_matrix: '["all"]'
-      boot_matrix: '["all"]'
-      release_tag_prefix: ubuntu26
-      release_body_title: 'Ubuntu 26.04 Desktop'
+      desktop_env: ${{ inputs.desktop_env || 'kde' }}
+      boot_mode: ${{ inputs.boot_mode || 'dual' }}
+      desktop_matrix: '["kde"]'
+      boot_matrix: '["dual"]'
+      release_tag_prefix: ubuntu26-kde
+      release_body_title: 'Ubuntu 26.04 LTS KDE Desktop for Xiaomi Pad 6S Pro'
       skip_release: ${{ inputs.skip_release || false }}
     secrets: inherit

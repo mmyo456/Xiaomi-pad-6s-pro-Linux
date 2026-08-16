@@ -1,161 +1,152 @@
 #!/bin/bash
 set -euo pipefail
 
-# =============================================================================
-# build-ubuntu26-rootfs.sh — Ubuntu 26.04 rootfs builder (refactored)
-# =============================================================================
+# Ubuntu 26.04 LTS (Resolute) ARM64 rootfs builder for Xiaomi Pad 6S Pro.
 source "$(dirname "$0")/lib/rootfs-common.sh"
 
-# --- Distro-specific configuration ---
 IMAGE_SIZE="8G"
 UUID="ee8d3593-59b1-480e-a3b6-4fefb17ee7d8"
-UBUNTU_SUITE="noble"
-UBUNTU_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/ubuntu"
+UBUNTU_SUITE="resolute"
+UBUNTU_MIRROR="https://ports.ubuntu.com/ubuntu-ports"
 
-# --- Password configuration (override via env vars) ---
 ROOT_PASS="${ROOT_PASS:-1234}"
 USER_PASS="${USER_PASS:-luser}"
 USER_NAME="${USER_NAME:-luser}"
 
-# --- Argument parsing ---
-# Accepts 4 args from _rootfs-template.yml: $distro $KERNEL_VER $BOOT_MODE $DESKTOP_ENV
 usage() {
     echo "Usage: $0 <distro> <kernel_version> <boot_mode> <desktop_environment>"
-    echo "desktop_environment: gnome, kde, or xfce"
-    echo "boot_mode: dual or single (default: dual)"
+    echo "desktop_environment: kde, gnome, or xfce"
+    echo "boot_mode: dual or single"
     exit 1
 }
 
 if [ $# -lt 2 ] || [ $# -gt 4 ]; then usage; fi
 if [ "$(id -u)" -ne 0 ]; then echo "Error: Must run as root"; exit 1; fi
 
-# Skip first arg (distro) for compatibility with template; remaining args are positional
-KERNEL=$2
-BOOT_MODE=${3:-dual}
-DESKTOP_ENV=$4
+KERNEL="$2"
+BOOT_MODE="${3:-dual}"
+DESKTOP_ENV="${4:-kde}"
 
 if [ -z "$DESKTOP_ENV" ] || [ "$DESKTOP_ENV" = "all" ]; then
-    DESKTOP_ENV="gnome"
+    DESKTOP_ENV="kde"
 fi
-
 if [[ ! "$DESKTOP_ENV" =~ ^(gnome|kde|xfce)$ ]]; then
-    echo "Error: desktop_environment must be gnome, kde, or xfce"
+    echo "Error: desktop_environment must be kde, gnome, or xfce" >&2
     exit 1
 fi
 
+if [ "$BOOT_MODE" = "all" ]; then
+    BOOT_MODE="dual"
+fi
 if [[ ! "$BOOT_MODE" =~ ^(dual|single)$ ]]; then
-    if [ "$BOOT_MODE" = "all" ]; then
-        BOOT_MODE="dual"
-    else
-        echo "Error: boot_mode must be dual or single (got: $BOOT_MODE)"
-        exit 1
-    fi
+    echo "Error: boot_mode must be dual or single (got: $BOOT_MODE)" >&2
+    exit 1
 fi
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 ROOTFS_IMG="ubuntu26_${DESKTOP_ENV}_${TIMESTAMP}.img"
 
 echo "=========================================="
-echo "Starting Ubuntu 26.04 LTS RootFS Build"
+echo "Ubuntu 26.04 LTS (Resolute) ARM64 build"
 echo "Desktop: $DESKTOP_ENV"
 echo "Kernel: $KERNEL"
+echo "Boot mode: $BOOT_MODE"
 echo "=========================================="
 
-# Pre-flight checks
 preflight_checks 10240 debootstrap
 
-# Step 1: Create image
 create_image "$IMAGE_SIZE" "$ROOTFS_IMG" "$UUID"
 setup_chroot_mounts "$ROOTDIR"
 trap_teardown "$ROOTDIR"
 
-# Step 2: Bootstrap
 debootstrap --arch=arm64 "$UBUNTU_SUITE" "$ROOTDIR" "$UBUNTU_MIRROR"
 
-# Step 3: Apt sources
-printf "deb %s/ %s main restricted universe multiverse\n" "$UBUNTU_MIRROR" "$UBUNTU_SUITE" > "$ROOTDIR/etc/apt/sources.list"
-printf "deb %s/ %s-updates main restricted universe multiverse\n" "$UBUNTU_MIRROR" "$UBUNTU_SUITE" >> "$ROOTDIR/etc/apt/sources.list"
-printf "deb %s/ %s-backports main restricted universe multiverse\n" "$UBUNTU_MIRROR" "$UBUNTU_SUITE" >> "$ROOTDIR/etc/apt/sources.list"
-printf "deb %s/ %s-security main restricted universe multiverse\n" "$UBUNTU_MIRROR" "$UBUNTU_SUITE" >> "$ROOTDIR/etc/apt/sources.list"
+cat > "$ROOTDIR/etc/apt/sources.list" <<EOF
+deb $UBUNTU_MIRROR $UBUNTU_SUITE main restricted universe multiverse
+deb $UBUNTU_MIRROR $UBUNTU_SUITE-updates main restricted universe multiverse
+deb $UBUNTU_MIRROR $UBUNTU_SUITE-backports main restricted universe multiverse
+deb $UBUNTU_MIRROR $UBUNTU_SUITE-security main restricted universe multiverse
+EOF
 
-chroot "$ROOTDIR" apt-get update
+chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get update
+chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    systemd systemd-resolved sudo vim-tiny wget curl locales ca-certificates \
+    network-manager openssh-server wpasupplicant dbus kmod initramfs-tools \
+    alsa-utils pipewire pipewire-pulse wireplumber bluez qrtr-tools
 
-# Step 4: Base packages
-chroot "$ROOTDIR" apt-get install -y --no-install-recommends \
-    systemd sudo vim-tiny wget curl \
-    network-manager openssh-server \
-    wpasupplicant dbus kmod initramfs-tools
-
-# Step 5: Kernel injection
-deb_files=( *.deb )
-if [ ${#deb_files[@]} -gt 0 ] && [ -f "${deb_files[0]}" ]; then
-    cp "${deb_files[@]}" "$ROOTDIR/tmp/"
-    chroot "$ROOTDIR" bash -c "export DEBIAN_FRONTEND=noninteractive && apt-get install -y /tmp/*.deb" || {
-        echo "Error: Kernel .deb installation failed, rootfs will not boot!" >&2
-        exit 1
-    }
-
-    KERNEL_MODULE_DIR=$(detect_kernel_module_dir "$ROOTDIR")
-    if [ -n "$KERNEL_MODULE_DIR" ]; then
-        echo "Detected kernel module directory: $KERNEL_MODULE_DIR"
-        chroot "$ROOTDIR" /sbin/depmod -a "$KERNEL_MODULE_DIR" || true
-    fi
-else
-    echo "Error: No .deb kernel packages found in current directory, cannot generate bootable rootfs!" >&2
+shopt -s nullglob
+deb_files=(./*.deb)
+shopt -u nullglob
+if [ ${#deb_files[@]} -eq 0 ]; then
+    echo "Error: No kernel .deb packages found" >&2
     exit 1
 fi
 
-# Step 6: Locale & hostname
-chroot "$ROOTDIR" bash -c "export DEBIAN_FRONTEND=noninteractive && echo 'LANG=en_US.UTF-8' > /etc/default/locale"
+cp "${deb_files[@]}" "$ROOTDIR/tmp/"
+if ! chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/*.deb; then
+    echo "Error: Kernel bundle installation failed" >&2
+    exit 1
+fi
+
+KERNEL_MODULE_DIR=$(detect_kernel_module_dir "$ROOTDIR" || true)
+if [ -n "$KERNEL_MODULE_DIR" ]; then
+    echo "Detected kernel module directory: $KERNEL_MODULE_DIR"
+    chroot "$ROOTDIR" depmod -a "$KERNEL_MODULE_DIR" || true
+fi
+
+echo 'LANG=en_US.UTF-8' > "$ROOTDIR/etc/default/locale"
 chroot "$ROOTDIR" locale-gen en_US.UTF-8
 echo "ubuntu26-${DESKTOP_ENV}" > "$ROOTDIR/etc/hostname"
 
-# Step 7: Users — uses common library
-setup_users "$ROOTDIR" "$ROOT_PASS" "$USER_NAME" "$USER_PASS" "sudo,audio,video,render,input,plugdev"
+setup_users "$ROOTDIR" "$ROOT_PASS" "$USER_NAME" "$USER_PASS" \
+    "sudo,audio,video,render,input,plugdev,bluetooth,netdev"
 
-# Step 8: Desktop environment
-if [ "$DESKTOP_ENV" = "gnome" ]; then
-    chroot "$ROOTDIR" apt-get install -y --no-install-recommends ubuntu-desktop-minimal gnome-terminal firefox gdm3
-elif [ "$DESKTOP_ENV" = "kde" ]; then
-    chroot "$ROOTDIR" apt-get install -y --no-install-recommends plasma-desktop sddm konsole firefox plasma-workspace systemsettings discover packagekit
+if [ "$DESKTOP_ENV" = "kde" ]; then
+    chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        kubuntu-desktop plasma-workspace-wayland sddm-theme-breeze \
+        dolphin konsole plasma-nm plasma-pa powerdevil bluedevil \
+        kdeconnect xdg-desktop-portal-kde discover packagekit maliit-keyboard
+elif [ "$DESKTOP_ENV" = "gnome" ]; then
+    chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ubuntu-desktop-minimal gnome-terminal gdm3
 elif [ "$DESKTOP_ENV" = "xfce" ]; then
-    chroot "$ROOTDIR" apt-get install -y --no-install-recommends xfce4 xfce4-terminal lightdm lightdm-gtk-greeter firefox mousepad thunar
+    chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        xfce4 xfce4-terminal lightdm lightdm-gtk-greeter mousepad thunar
 fi
 
-# Step 9: DM autologin — uses common library
 setup_autologin "$ROOTDIR" "$DESKTOP_ENV" "$USER_NAME"
 
-# Handle sddm user group membership for KDE
 if [ "$DESKTOP_ENV" = "kde" ]; then
     if chroot "$ROOTDIR" id -u sddm >/dev/null 2>&1; then
         chroot "$ROOTDIR" usermod -aG video,render,input sddm || true
     fi
-    # Plasma screen blanking workaround (KDE-specific)
-    mkdir -p "$ROOTDIR/etc/xdg"
-    printf "[PowerManagement]\nScreenBlanking=false\nDisplaySleep=0\n" > "$ROOTDIR/etc/xdg/plasmarc"
+    mkdir -p "$ROOTDIR/etc/sddm.conf.d"
+    cat > "$ROOTDIR/etc/sddm.conf.d/10-sheng.conf" <<EOF
+[General]
+DisplayServer=wayland
+
+[Autologin]
+User=$USER_NAME
+Session=plasmawayland
+Relogin=true
+EOF
 fi
 
 chroot "$ROOTDIR" systemctl set-default graphical.target
-
-# Step 10: Hardware quirks
 setup_getty_ttyMSM0 "$ROOTDIR"
 setup_systemd_resolved_symlink "$ROOTDIR"
 configure_touchscreen "$ROOTDIR"
 fix_wifi_firmware "$ROOTDIR"
-
-# QRTR service — uses common library (consistent with Fedora/Arch)
 setup_qrtr_service "$ROOTDIR"
 
-# Step 11: fstab & cleanup
 generate_fstab "$ROOTDIR" "$BOOT_MODE"
 chroot "$ROOTDIR" apt-get clean
-chroot "$ROOTDIR" rm -rf /tmp/*.deb
+chroot "$ROOTDIR" rm -f /tmp/*.deb
 teardown_mounts "$ROOTDIR"
+TEARDOWN_ROOTDIR=""
+trap - EXIT ERR INT TERM
 
-# Step 12: Pack
 apply_fs_uuid "$UUID" "$ROOTFS_IMG"
-echo "Raw image generated: $ROOTFS_IMG"
-echo "Converting to sparse image..."
 pack_sparse_image "$ROOTFS_IMG" "ubuntu26_${DESKTOP_ENV}_${TIMESTAMP}.7z"
 
-echo "Ubuntu build successful!"
+echo "Ubuntu 26.04 KDE build successful"
