@@ -432,6 +432,12 @@ jobs:
                 '    if [ "$desktop" = "kde" ]; then\n'
                 '        # CI has no stdin for pacman provider prompts.\n'
                 '        chroot "$rootdir" pacman -S --noconfirm --needed qt6-multimedia-ffmpeg\n'
+                '        # Install the non-negotiable graphical-session pieces separately.\n'
+                '        # The upstream optional bundle hides pacman failures with || true,\n'
+                '        # which previously produced an image with no sddm.service.\n'
+                '        chroot "$rootdir" pacman -S --noconfirm --needed sddm plasma-desktop plasma-workspace\n'
+                '        test -x "$rootdir/usr/bin/sddm"\n'
+                '        test -f "$rootdir/usr/lib/systemd/system/sddm.service"\n'
                 '        chroot "$rootdir" pacman -S --noconfirm --needed \\\n'
             )
             old_default = (
