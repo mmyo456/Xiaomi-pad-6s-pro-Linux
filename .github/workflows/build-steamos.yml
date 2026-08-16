@@ -8,10 +8,14 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: 'Desktop Environment'
+        description: 'Desktop Environment (this repair workflow always builds KDE)'
         type: choice
-        options: [gamescope, kde, gnome, server]
-        default: 'gamescope'
+        options: [kde]
+        # Keep the UI honest for manual runs too.  More importantly, the
+        # build command below is deliberately pinned to KDE: push-triggered
+        # runs have no workflow_dispatch inputs and used to create the
+        # console-only default image.
+        default: 'kde'
       launcher:
         description: 'Game Launcher'
         type: choice
@@ -416,7 +420,6 @@ jobs:
       # Game Mode marker.  Apply a small, asserted patch before building so
       # the KDE choice produces a bootable Plasma session.
       - name: "Fix non-interactive KDE image build"
-        if: ${{ inputs.desktop == 'kde' }}
         run: |
             python3 - <<'PY'
             from pathlib import Path
@@ -478,14 +481,39 @@ jobs:
         run: |
           chmod +x sheng-steamos_build.sh lib/*.sh
           sudo bash sheng-steamos_build.sh \
-            --desktop="${{ inputs.desktop }}" \
-            --launcher="${{ inputs.launcher }}" \
-            --boot="${{ inputs.boot_mode == 'dual (linux)' && 'dual' || 'single' }}" \
-            --autologin="${{ inputs.autologin }}" \
-            --username="${{ inputs.username }}" \
-            --hostname="${{ inputs.hostname }}" \
+            --desktop=kde \
+            --launcher="${{ inputs.launcher || 'both' }}" \
+            --boot="${{ (inputs.boot_mode || 'dual (linux)') == 'dual (linux)' && 'dual' || 'single' }}" \
+            --autologin="${{ inputs.autologin || 'true' }}" \
+            --username="${{ inputs.username || 'gamer' }}" \
+            --hostname="${{ inputs.hostname || 'sheng-steamos' }}" \
             --output=image \
             --mode=ci
+
+      # Do not upload a rootfs merely because the builder exited cleanly.
+      # Inspect the *compressed final image* so the file we flash is proven
+      # to contain SDDM and the display-manager enablement links.
+      - name: "Verify final image contains enabled KDE desktop"
+        run: |
+          set -euo pipefail
+          archive="$(find . -maxdepth 1 -type f -name '*.7z' -print -quit)"
+          test -n "$archive"
+          verify_dir="$(mktemp -d)"
+          7z x "$archive" "-o$verify_dir"
+          sparse_image="$(find "$verify_dir" -type f -name 'sparse_*.img' -print -quit)"
+          test -n "$sparse_image"
+          simg2img "$sparse_image" "$verify_dir/rootfs.ext4"
+          for file in \
+            /usr/bin/sddm \
+            /usr/bin/startplasma-wayland \
+            /usr/lib/systemd/system/sddm.service \
+            /usr/share/wayland-sessions/plasma.desktop \
+            /etc/sddm.conf.d/autologin.conf \
+            /etc/systemd/system/display-manager.service \
+            /etc/systemd/system/graphical.target.wants/sddm.service; do
+            echo "Checking $file"
+            sudo debugfs -R "stat $file" "$verify_dir/rootfs.ext4" 2>&1 | grep -q 'Inode:'
+          done
 
       - name: "Upload RootFS"
         uses: actions/upload-artifact@v4
