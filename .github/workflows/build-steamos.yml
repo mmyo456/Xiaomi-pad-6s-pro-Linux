@@ -208,10 +208,12 @@ jobs:
           sudo ldconfig
           echo "libssc pkg-config:"
           pkg-config --cflags --libs libssc 2>&1 || echo "(not found via pkg-config)"
-          wget -q https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/iio-sensor-proxy-3.9.tar.gz
-          tar -xf iio-sensor-proxy-3.9.tar.gz
+          # GitLab's archive endpoint intermittently returns HTTP errors from
+          # GitHub Actions (wget exits with code 8).  Use the GitHub mirror
+          # and its immutable v3.9 tag instead.
+          git clone --depth 1 --branch 3.9 https://github.com/hadess/iio-sensor-proxy.git iio-sensor-proxy-3.9
           cd iio-sensor-proxy-3.9
-          meson setup output --prefix=/usr -Dssc-support=enabled -Dsystemdsystemunitdir=/usr/lib/systemd/system
+          meson setup output --prefix=/usr -Dsystemdsystemunitdir=/usr/lib/systemd/system
           meson compile -C output
           DESTDIR=$PWD/stage meson install --no-rebuild -C output
 
