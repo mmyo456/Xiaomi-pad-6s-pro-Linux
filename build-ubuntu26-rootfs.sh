@@ -116,9 +116,9 @@ setup_users "$ROOTDIR" "$ROOT_PASS" "$USER_NAME" "$USER_PASS" \
 
 if [ "$DESKTOP_ENV" = "kde" ]; then
     chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        kubuntu-desktop plasma-workspace-wayland sddm-theme-breeze \
+        kubuntu-desktop plasma-session-wayland sddm-theme-breeze \
         dolphin konsole plasma-nm plasma-pa powerdevil bluedevil \
-        kdeconnect xdg-desktop-portal-kde discover packagekit maliit-keyboard
+        kdeconnect xdg-desktop-portal-kde discover packagekit plasma-keyboard
 elif [ "$DESKTOP_ENV" = "gnome" ]; then
     chroot "$ROOTDIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ubuntu-desktop-minimal gnome-terminal gdm3
@@ -140,7 +140,7 @@ DisplayServer=wayland
 
 [Autologin]
 User=$USER_NAME
-Session=plasmawayland
+Session=plasma
 Relogin=true
 EOF
 fi
