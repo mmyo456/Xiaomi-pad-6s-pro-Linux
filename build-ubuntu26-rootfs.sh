@@ -95,7 +95,8 @@ fi
 
 cp "${deb_files[@]}" "$ROOTDIR/tmp/"
 if ! chroot "$ROOTDIR" bash -c \
-    'export DEBIAN_FRONTEND=noninteractive; apt-get install -y /tmp/*.deb'; then
+    'export DEBIAN_FRONTEND=noninteractive; apt-get \
+        -o Dpkg::Options::="--force-overwrite" install -y /tmp/*.deb'; then
     echo "Error: Kernel bundle installation failed" >&2
     exit 1
 fi
