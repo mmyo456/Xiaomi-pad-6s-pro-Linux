@@ -441,7 +441,7 @@ jobs:
                 '        # The upstream optional bundle hides pacman failures with || true,\n'
                 '        # which previously produced an image with no sddm.service.\n'
                 '        chroot "$rootdir" pacman -S --noconfirm --needed \\\n'
-                '            --overwrite "/usr/include/libssc/*,/usr/bin/monitor-sensor,/usr/lib/systemd/system/iio-sensor-proxy.service,/usr/lib/udev/rules.d/80-iio-sensor-proxy.rules,/usr/share/dbus-1/system.d/net.hadess.SensorProxy.conf,/usr/share/polkit-1/actions/net.hadess.SensorProxy.policy" \\\n'
+                '            --overwrite "/usr/include/libssc/*,/usr/bin/ssccli,/usr/bin/monitor-sensor,/usr/lib/systemd/system/iio-sensor-proxy.service,/usr/lib/udev/rules.d/80-iio-sensor-proxy.rules,/usr/share/dbus-1/system.d/net.hadess.SensorProxy.conf,/usr/share/polkit-1/actions/net.hadess.SensorProxy.policy" \\\n'
                 '            sddm plasma-desktop plasma-workspace\n'
                 '        test -x "$rootdir/usr/bin/sddm"\n'
                 '        test -f "$rootdir/usr/lib/systemd/system/sddm.service"\n'
@@ -484,7 +484,7 @@ jobs:
                 'if [ "$DESKTOP" = "kde" ]; then\n'
                 '    echo "Verifying mandatory KDE desktop components..."\n'
                 '    chroot "$ROOTDIR" pacman -S --noconfirm --needed \\\n'
-                '        --overwrite "/usr/include/libssc/*,/usr/bin/monitor-sensor,/usr/lib/systemd/system/iio-sensor-proxy.service,/usr/lib/udev/rules.d/80-iio-sensor-proxy.rules,/usr/share/dbus-1/system.d/net.hadess.SensorProxy.conf,/usr/share/polkit-1/actions/net.hadess.SensorProxy.policy" \\\n'
+                '        --overwrite "/usr/include/libssc/*,/usr/bin/ssccli,/usr/bin/monitor-sensor,/usr/lib/systemd/system/iio-sensor-proxy.service,/usr/lib/udev/rules.d/80-iio-sensor-proxy.rules,/usr/share/dbus-1/system.d/net.hadess.SensorProxy.conf,/usr/share/polkit-1/actions/net.hadess.SensorProxy.policy" \\\n'
                 '        qt6-multimedia-ffmpeg sddm plasma-desktop plasma-workspace\n'
                 '    chroot "$ROOTDIR" pacman -Q sddm plasma-desktop plasma-workspace\n'
                 '    # pacman owns generic copies for dependency accounting; restore the\n'
@@ -675,3 +675,4 @@ jobs:
         run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
